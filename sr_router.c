@@ -126,16 +126,38 @@ void sr_handlepacket(struct sr_instance* sr,
       }
 
     } else if (ntohs(arp_hdr->ar_op) == arp_op_reply) {
-      /* TODO */
       #ifdef ARP_DEBUG
       fprintf(stderr, "ARP reply received\n");
+      #endif
       if (arp_hdr->ar_tip == sr_get_interface(sr, interface)->ip) {
+        #ifdef ARP_DEBUG
         fprintf(stderr, "ARP reply for this router received\n");
+        #endif
+        /* forward queued packets */
+        struct sr_arpreq *req;
+        for (req = sr->cache.requests; req; req = req->next) {
+          if (req->ip == arp_hdr->ar_sip) {
+            struct sr_packet *pkt;
+            for (pkt = req->packets; pkt; pkt = pkt->next) {
+              sr_ethernet_hdr_t *pkt_eth_hdr = (sr_ethernet_hdr_t *)pkt->buf;
+              memcpy(pkt_eth_hdr->ether_dhost, arp_hdr->ar_sha, ETHER_ADDR_LEN);
+              sr_send_packet(sr, pkt->buf, pkt->len, pkt->iface);
+              #ifdef ARP_DEBUG
+              fprintf(stderr, "Packet forwarded\n");
+              #endif
+            }
+            sr_arpreq_destroy(&(sr->cache), req);
+            #ifdef ARP_DEBUG
+            fprintf(stderr, "ARP request destroyed\n");
+            #endif
+          }
+        }
       } else {
+        #ifdef ARP_DEBUG
         fprintf(stderr, "ARP reply for other host received\n");
         return;
+        #endif
       }
-      #endif
     }
 
     return;

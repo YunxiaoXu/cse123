@@ -68,13 +68,17 @@ sr.ip: CFLAGS += -DIP_DEBUG
 sr.ip : $(sr_OBJS)
 	$(CC) $(CFLAGS) -o sr.ip $(sr_OBJS) $(LIBS)
 
+sr.debug: CFLAGS += -DARP_DEBUG -DIP_DEBUG
+sr.debug : $(sr_OBJS)
+	$(CC) $(CFLAGS) -o sr.debug $(sr_OBJS) $(LIBS)
+
 sr.purify : $(sr_OBJS)
 	$(PURIFY) $(CC) $(CFLAGS) -o sr.purify $(sr_OBJS) $(LIBS)
 
-.PHONY : clean clean-deps dist    
+.PHONY : clean clean-deps dist test
 
 clean:
-	rm -f *.o *~ core sr *.dump *.tar tags sr.arp sr.ip
+	rm -f *.o *~ core sr *.dump *.tar tags sr.*
 
 clean-deps:
 	rm -f .*.d
@@ -88,3 +92,6 @@ dist: dist-clean
 
 tags:
 	ctags *.c
+
+test: sr.debug
+	./sr.debug -l sr.pcap >> sr.pcap.log 2>&1

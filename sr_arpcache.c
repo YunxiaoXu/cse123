@@ -18,6 +18,44 @@
 */
 void sr_arpcache_sweepreqs(struct sr_instance *sr) { 
     /* Fill this in */
+    time_t curtime;
+
+    struct sr_arpreq *req;
+    for (req = sr->cache.requests; req; req = req->next) {
+        curtime = time(NULL);
+        if (difftime(curtime, req->sent) > 1.0) {
+            if (req->times_sent >= 5) {
+                struct sr_packet *pkt;
+                for (pkt = req->packets; pkt; pkt = pkt->next) {
+                    /* TODO: send ICMP host unreachable */
+                }
+                sr_arpreq_destroy(&sr->cache, req);
+            } else {
+                /* send ARP request to ip */
+                uint8_t *buf = (uint8_t *)malloc(sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t));
+                /* set ARP header */
+                sr_arp_hdr_t *arp_hdr = (void *)buf + sizeof(sr_ethernet_hdr_t);
+                arp_hdr->ar_hrd = htons(arp_hrd_ethernet);
+                arp_hdr->ar_pro = htons(ethertype_ip);
+                arp_hdr->ar_hln = ETHER_ADDR_LEN;
+                arp_hdr->ar_pln = 4;
+                arp_hdr->ar_op = htons(arp_op_request);
+                memcpy(arp_hdr->ar_sha, sr_get_interface(sr, req->packets->iface)->addr, ETHER_ADDR_LEN);
+                arp_hdr->ar_sip = sr_get_interface(sr, req->packets->iface)->ip;
+                memset(arp_hdr->ar_tha, 0, ETHER_ADDR_LEN);
+                arp_hdr->ar_tip = req->ip;
+                /* set Ethernet header */
+                sr_ethernet_hdr_t *eth_hdr = (void *)buf;
+                memset(eth_hdr->ether_dhost, 0xff, ETHER_ADDR_LEN);
+                memcpy(eth_hdr->ether_shost, sr_get_interface(sr, req->packets->iface)->addr, ETHER_ADDR_LEN);
+                eth_hdr->ether_type = htons(ethertype_arp);
+                /* send packet */
+                sr_send_packet(sr, (uint8_t *)buf, sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t), req->packets->iface);
+                req->sent = curtime;
+                req->times_sent++;
+            }
+        }
+    }
 }
 
 /* You should not need to touch the rest of this code. */
