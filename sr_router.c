@@ -80,6 +80,7 @@ void sr_handlepacket(struct sr_instance* sr,
 
   /* fill in code here */
   #if defined ARP_DEBUG || defined IP_DEBUG
+  fprintf(stderr, "\n");
   print_hdr_eth(packet);
   #endif
   sr_ethernet_hdr_t *eth_hdr = (sr_ethernet_hdr_t *)packet;
@@ -140,6 +141,7 @@ void sr_handlepacket(struct sr_instance* sr,
             struct sr_packet *pkt;
             for (pkt = req->packets; pkt; pkt = pkt->next) {
               sr_ethernet_hdr_t *pkt_eth_hdr = (sr_ethernet_hdr_t *)pkt->buf;
+              memcpy(pkt_eth_hdr->ether_shost, sr_get_interface(sr, pkt->iface)->addr, ETHER_ADDR_LEN);
               memcpy(pkt_eth_hdr->ether_dhost, arp_hdr->ar_sha, ETHER_ADDR_LEN);
               sr_send_packet(sr, pkt->buf, pkt->len, pkt->iface);
               #ifdef ARP_DEBUG
@@ -281,7 +283,7 @@ void sr_handlepacket(struct sr_instance* sr,
         ip_hdr->ip_sum = 0;
         ip_hdr->ip_sum = cksum(ip_hdr, sizeof(sr_ip_hdr_t));
         /* set ethernet header */
-        memcpy(eth_hdr->ether_shost, sr_get_interface(sr, rt_entry->interface)->addr, ETHER_ADDR_LEN);
+        /* memcpy(eth_hdr->ether_shost, sr_get_interface(sr, rt_entry->interface)->addr, ETHER_ADDR_LEN); */
         /* memcpy(eth_hdr->ether_dhost, sr_arpcache_lookup((&sr->cache), rt_entry->gw.s_addr)->mac, ETHER_ADDR_LEN);
         sr_send_packet(sr, packet, len, rt_entry->interface); */
         sr_arpcache_queuereq((&sr->cache), rt_entry->gw.s_addr, packet, len, rt_entry->interface);

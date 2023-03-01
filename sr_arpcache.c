@@ -10,6 +10,8 @@
 #include "sr_router.h"
 #include "sr_if.h"
 #include "sr_protocol.h"
+#include "sr_rt.h"
+#include "sr_utils.h"
 
 /* 
   This function gets called every second. For each request sent out, we keep
@@ -27,7 +29,60 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
             if (req->times_sent >= 5) {
                 struct sr_packet *pkt;
                 for (pkt = req->packets; pkt; pkt = pkt->next) {
-                    /* TODO: send ICMP host unreachable */
+                    /* send ICMP host unreachable */
+                    uint8_t *buf = (uint8_t *)malloc(
+                        sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
+                    /* new packet headers */
+                    sr_ethernet_hdr_t *eth_hdr = (void *)buf;
+                    sr_ip_hdr_t *ip_hdr = (void *)eth_hdr + sizeof(sr_ethernet_hdr_t);
+                    sr_icmp_t3_hdr_t *icmp_hdr = (void *)ip_hdr + sizeof(sr_ip_hdr_t);
+                    /* queued packet headers */
+                    sr_ethernet_hdr_t *pkt_eth_hdr = (void *)pkt->buf;
+                    sr_ip_hdr_t *pkt_ip_hdr = (void *)pkt_eth_hdr + sizeof(sr_ethernet_hdr_t);
+                    /* set ICMP header */
+                    icmp_hdr->icmp_type = 3;
+                    icmp_hdr->icmp_code = icmp_host_unreachable;
+                    icmp_hdr->icmp_sum = 0;
+                    icmp_hdr->unused = 0;
+                    icmp_hdr->next_mtu = 0;
+                    memcpy(icmp_hdr->data, pkt_ip_hdr, ICMP_DATA_SIZE);
+                    icmp_hdr->icmp_sum = cksum(icmp_hdr, sizeof(sr_icmp_t3_hdr_t));
+                    /* set IP header */
+                    ip_hdr->ip_hl = 5;
+                    ip_hdr->ip_v = 4;
+                    ip_hdr->ip_tos = 0;
+                    ip_hdr->ip_len = htons(sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
+                    ip_hdr->ip_id = 0;
+                    ip_hdr->ip_off = 0;
+                    ip_hdr->ip_ttl = 255;
+                    ip_hdr->ip_p = ip_protocol_icmp;
+                    ip_hdr->ip_sum = 0;
+                    struct sr_rt *rt_entry;
+                    for (rt_entry = sr->routing_table; rt_entry; rt_entry = rt_entry->next) {
+                        if (pkt_ip_hdr->ip_src == rt_entry->dest.s_addr) {
+                            ip_hdr->ip_src = sr_get_interface(sr, rt_entry->interface)->ip;
+                            ip_hdr->ip_dst = rt_entry->gw.s_addr;
+                            break;
+                        }
+                    }
+                    if (!rt_entry) {
+                        #if defined IP_DEBUG || defined ARP_DEBUG
+                        fprintf(stderr, "No route found for IP %s", inet_ntoa((struct in_addr){ip_hdr->ip_dst}));
+                        #endif
+                        continue;
+                    }
+                    ip_hdr->ip_sum = cksum(ip_hdr, sizeof(sr_ip_hdr_t));
+                    /* set Ethernet header */
+                    memcpy(eth_hdr->ether_dhost, pkt_eth_hdr->ether_shost, ETHER_ADDR_LEN);
+                    memcpy(eth_hdr->ether_shost, sr_get_interface(sr, rt_entry->interface)->addr, ETHER_ADDR_LEN);
+                    eth_hdr->ether_type = htons(ethertype_ip);
+                    /* send packet */
+                    sr_send_packet(sr, buf,
+                        sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t),
+                        rt_entry->interface);
+                    #if defined IP_DEBUG || defined ARP_DEBUG
+                    fprintf(stderr, "Sent ICMP host unreachable to %s\n", inet_ntoa((struct in_addr){ip_hdr->ip_dst}));
+                    #endif
                 }
                 sr_arpreq_destroy(&sr->cache, req);
             } else {
@@ -53,6 +108,9 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
                 sr_send_packet(sr, (uint8_t *)buf, sizeof(sr_ethernet_hdr_t) + sizeof(sr_arp_hdr_t), req->packets->iface);
                 req->sent = curtime;
                 req->times_sent++;
+                #if defined ARP_DEBUG
+                fprintf(stderr, "Sent ARP request to %s\n", inet_ntoa((struct in_addr){arp_hdr->ar_tip}));
+                #endif
             }
         }
     }
