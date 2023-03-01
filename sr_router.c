@@ -13,7 +13,7 @@
 
 #include <stdio.h>
 #include <assert.h>
-
+#include <string.h>
 
 #include "sr_if.h"
 #include "sr_rt.h"
@@ -79,6 +79,73 @@ void sr_handlepacket(struct sr_instance* sr,
   printf("*** -> Received packet of length %d \n",len);
 
   /* fill in code here */
+  #if defined ARP_DEBUG || defined IP_DEBUG
+  print_hdr_eth(packet);
+  #endif
+  sr_ethernet_hdr_t *eth_hdr = (sr_ethernet_hdr_t *)packet;
+
+  if (ethertype(packet) == ethertype_arp) {
+    /* process ARP packet */
+    #ifdef ARP_DEBUG
+    fprintf(stderr, "ARP packet received\n");
+    #endif
+    sr_arp_hdr_t *arp_hdr = (sr_arp_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t));
+    #ifdef ARP_DEBUG
+    print_hdr_arp((uint8_t *)arp_hdr);
+    #endif
+
+    if (ntohs(arp_hdr->ar_op) == arp_op_request) {
+      /* reply ARP request */
+      #ifdef ARP_DEBUG
+      fprintf(stderr, "ARP request received\n");
+      #endif
+
+      if (arp_hdr->ar_tip == sr_get_interface(sr, interface)->ip) {
+        #ifdef ARP_DEBUG
+        fprintf(stderr, "ARP request for this router received\n");
+        #endif
+        /* set ARP header */
+        arp_hdr->ar_op = htons(arp_op_reply);
+        memcpy(arp_hdr->ar_tha, arp_hdr->ar_sha, ETHER_ADDR_LEN);
+        arp_hdr->ar_tip = arp_hdr->ar_sip;
+        memcpy(arp_hdr->ar_sha, sr_get_interface(sr, interface)->addr, ETHER_ADDR_LEN);
+        arp_hdr->ar_sip = sr_get_interface(sr, interface)->ip;
+        /* set ethernet header */
+        memcpy(eth_hdr->ether_shost, arp_hdr->ar_sha, ETHER_ADDR_LEN);
+        memcpy(eth_hdr->ether_dhost, arp_hdr->ar_tha, ETHER_ADDR_LEN);
+        sr_send_packet(sr, packet, len, interface);
+        #ifdef ARP_DEBUG
+        fprintf(stderr, "ARP reply sent\n");
+        #endif
+      #ifdef ARP_DEBUG
+      } else {
+        fprintf(stderr, "ARP request for other host received\n");
+        return;
+      #endif
+      }
+
+    } else if (ntohs(arp_hdr->ar_op) == arp_op_reply) {
+      #ifdef ARP_DEBUG
+      fprintf(stderr, "ARP reply received\n");
+      if (arp_hdr->ar_tip == sr_get_interface(sr, interface)->ip) {
+        fprintf(stderr, "ARP reply for this router received\n");
+      } else {
+        fprintf(stderr, "ARP reply for other host received\n");
+        return;
+      }
+      #endif
+    }
+
+    return;
+
+  } else if (ethertype(packet) == ethertype_ip) {
+    /* IP packet */
+    #ifdef IP_DEBUG
+    fprintf(stderr, "IP packet received\n");
+    #endif
+
+    /* TODO: process IP packet */
+  }
 
 }/* end sr_ForwardPacket */
 

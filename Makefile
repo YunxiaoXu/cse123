@@ -60,13 +60,21 @@ $(sr_DEPS) : .%.d : %.c
 sr : $(sr_OBJS)
 	$(CC) $(CFLAGS) -o sr $(sr_OBJS) $(LIBS) 
 
+sr.arp: CFLAGS += -DARP_DEBUG
+sr.arp : $(sr_OBJS)
+	$(CC) $(CFLAGS) -o sr.arp $(sr_OBJS) $(LIBS)
+
+sr.ip: CFLAGS += -DIP_DEBUG
+sr.ip : $(sr_OBJS)
+	$(CC) $(CFLAGS) -o sr.ip $(sr_OBJS) $(LIBS)
+
 sr.purify : $(sr_OBJS)
 	$(PURIFY) $(CC) $(CFLAGS) -o sr.purify $(sr_OBJS) $(LIBS)
 
 .PHONY : clean clean-deps dist    
 
 clean:
-	rm -f *.o *~ core sr *.dump *.tar tags
+	rm -f *.o *~ core sr *.dump *.tar tags sr.arp sr.ip
 
 clean-deps:
 	rm -f .*.d
