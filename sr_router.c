@@ -221,15 +221,62 @@ void sr_handlepacket(struct sr_instance* sr,
             #ifdef IP_DEBUG
             fprintf(stderr, "ICMP echo reply sent\n");
             #endif
+            return;
+          } else {
+            #ifdef IP_DEBUG
+            fprintf(stderr, "Non-echo request ICMP packet received\n");
+            #endif
+            return;
           }
+        } else {
+          #ifdef IP_DEBUG
+          fprintf(stderr, "Non-ICMP packect sent to router: ip_p %u\n", ip_hdr->ip_p);
+          #endif
+          return;
         }
       }
     }
     
 
-    /* TODO: forward IP packet */
+    /* forward IP packet */
+    struct sr_rt *rt_entry;
+    for (rt_entry = sr->routing_table; rt_entry; rt_entry = rt_entry->next) {
+      if ((ip_hdr->ip_dst & rt_entry->mask.s_addr) == rt_entry->dest.s_addr) {
+        #ifdef IP_DEBUG
+        fprintf(stderr, "IP packet for other host received\n");
+        #endif
 
+        /* decrement TTL */
+        ip_hdr->ip_ttl--;
+        if (ip_hdr->ip_ttl == 0) {
+          /* TODO: send ICMP time exceeded */
+          #ifdef IP_DEBUG
+          fprintf(stderr, "IP packet TTL expired\n");
+          #endif
+          return;
+        }
+
+        /* set ip header */
+        ip_hdr->ip_sum = 0;
+        ip_hdr->ip_sum = cksum(ip_hdr, sizeof(sr_ip_hdr_t));
+        /* set ethernet header */
+        memcpy(eth_hdr->ether_shost, sr_get_interface(sr, rt_entry->interface)->addr, ETHER_ADDR_LEN);
+        /* memcpy(eth_hdr->ether_dhost, sr_arpcache_lookup((&sr->cache), rt_entry->gw.s_addr)->mac, ETHER_ADDR_LEN);
+        sr_send_packet(sr, packet, len, rt_entry->interface); */
+        sr_arpcache_queuereq((&sr->cache), rt_entry->gw.s_addr, packet, len, rt_entry->interface);
+        #ifdef IP_DEBUG
+        fprintf(stderr, "IP packet queued for forwarding\n");
+        #endif
+        return;
+      }
+    }
+  
+    /* TODO: send ICMP destination net unreachable */
+    #ifdef IP_DEBUG
+    fprintf(stderr, "IP packet destination not found\n");
+    #endif
   }
+
 
 }/* end sr_ForwardPacket */
 
