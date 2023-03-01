@@ -89,6 +89,7 @@ void sr_handlepacket(struct sr_instance* sr,
     #ifdef ARP_DEBUG
     fprintf(stderr, "ARP packet received\n");
     #endif
+
     sr_arp_hdr_t *arp_hdr = (sr_arp_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t));
     #ifdef ARP_DEBUG
     print_hdr_arp((uint8_t *)arp_hdr);
@@ -125,6 +126,7 @@ void sr_handlepacket(struct sr_instance* sr,
       }
 
     } else if (ntohs(arp_hdr->ar_op) == arp_op_reply) {
+      /* TODO */
       #ifdef ARP_DEBUG
       fprintf(stderr, "ARP reply received\n");
       if (arp_hdr->ar_tip == sr_get_interface(sr, interface)->ip) {
@@ -144,7 +146,89 @@ void sr_handlepacket(struct sr_instance* sr,
     fprintf(stderr, "IP packet received\n");
     #endif
 
-    /* TODO: process IP packet */
+    sr_ip_hdr_t *ip_hdr = (sr_ip_hdr_t *)(packet + sizeof(sr_ethernet_hdr_t));
+    #ifdef IP_DEBUG
+    print_hdr_ip((uint8_t *)ip_hdr);
+    #endif
+
+    /* verify checksum */
+    uint16_t sum = ip_hdr->ip_sum;
+    ip_hdr->ip_sum = 0;
+    if (cksum(ip_hdr, sizeof(sr_ip_hdr_t)) != sum) {
+      #ifdef IP_DEBUG
+      fprintf(stderr, "IP packet checksum error: %u, %u\n", sum, cksum(ip_hdr, sizeof(sr_ip_hdr_t)));
+      #endif
+      /* TODO: send ICMP checksum error */
+      return;
+    }
+    #ifdef IP_DEBUG
+    fprintf(stderr, "IP packet checksum correct\n");
+    #endif
+
+    /* reply ICMP if ip is router's */
+    struct sr_if *router_if;
+    for (router_if = sr->if_list; router_if; router_if = router_if->next) {
+      if (ip_hdr->ip_dst == router_if->ip) {
+        #ifdef IP_DEBUG
+        fprintf(stderr, "IP packet for this router received\n");
+        #endif
+
+        if (ip_hdr->ip_p == ip_protocol_icmp) {
+          #ifdef IP_DEBUG
+          fprintf(stderr, "ICMP packet received\n");
+          #endif
+
+          sr_icmp_t11_hdr_t *icmp_hdr = (sr_icmp_t11_hdr_t *)((void *)ip_hdr + sizeof(sr_ip_hdr_t));
+          #ifdef IP_DEBUG
+          print_hdr_icmp((uint8_t *)icmp_hdr);
+          #endif
+
+          if (icmp_hdr->icmp_type == 8) {
+            /* reply echo request */
+            #ifdef IP_DEBUG
+            fprintf(stderr, "ICMP echo request received\n");
+            #endif
+
+            /* verify ICMP checksum */
+            sum = icmp_hdr->icmp_sum;
+            icmp_hdr->icmp_sum = 0;
+            uint16_t icmp_hdr_len = ntohs(ip_hdr->ip_len) - sizeof(sr_ip_hdr_t);
+            if (cksum(icmp_hdr, icmp_hdr_len) != sum) {
+              #ifdef IP_DEBUG
+              fprintf(stderr, "ICMP packet checksum error: %u, %u\n", sum, cksum(icmp_hdr, icmp_hdr_len));
+              #endif
+              return;
+            }
+            #ifdef IP_DEBUG
+            fprintf(stderr, "ICMP packet checksum correct\n");
+            #endif
+
+            /* set ICMP header */
+            icmp_hdr->icmp_type = 0;
+            icmp_hdr->icmp_code = 0;
+            icmp_hdr->icmp_sum = 0;
+            icmp_hdr->icmp_sum = cksum(icmp_hdr, icmp_hdr_len);
+            /* set IP header */
+            ip_hdr->ip_dst = ip_hdr->ip_src;
+            ip_hdr->ip_src = router_if->ip;
+            ip_hdr->ip_ttl = 64;
+            ip_hdr->ip_sum = 0;
+            ip_hdr->ip_sum = cksum(ip_hdr, sizeof(sr_ip_hdr_t));
+            /* set ethernet header */
+            memcpy(eth_hdr->ether_dhost, eth_hdr->ether_shost, ETHER_ADDR_LEN);
+            memcpy(eth_hdr->ether_shost, sr_get_interface(sr, interface)->addr, ETHER_ADDR_LEN);
+            sr_send_packet(sr, packet, len, interface);
+            #ifdef IP_DEBUG
+            fprintf(stderr, "ICMP echo reply sent\n");
+            #endif
+          }
+        }
+      }
+    }
+    
+
+    /* TODO: forward IP packet */
+
   }
 
 }/* end sr_ForwardPacket */
