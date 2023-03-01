@@ -180,7 +180,6 @@ void sr_handlepacket(struct sr_instance* sr,
       #ifdef IP_DEBUG
       fprintf(stderr, "IP packet checksum error: %u, %u\n", sum, cksum(ip_hdr, sizeof(sr_ip_hdr_t)));
       #endif
-      /* TODO: send ICMP checksum error */
       return;
     }
     #ifdef IP_DEBUG
