@@ -148,6 +148,7 @@ void sr_handlepacket(struct sr_instance* sr,
               #ifdef ARP_DEBUG
               fprintf(stderr, "Packet forwarded\n");
               #endif
+              free(pkt->buf);
             }
             sr_arpreq_destroy(&(sr->cache), req);
             #ifdef ARP_DEBUG
@@ -319,11 +320,10 @@ void sr_handlepacket(struct sr_instance* sr,
         /* set ip header */
         ip_hdr->ip_sum = 0;
         ip_hdr->ip_sum = cksum(ip_hdr, sizeof(sr_ip_hdr_t));
-        /* set ethernet header */
-        /* memcpy(eth_hdr->ether_shost, sr_get_interface(sr, rt_entry->interface)->addr, ETHER_ADDR_LEN); */
-        /* memcpy(eth_hdr->ether_dhost, sr_arpcache_lookup((&sr->cache), rt_entry->gw.s_addr)->mac, ETHER_ADDR_LEN);
-        sr_send_packet(sr, packet, len, rt_entry->interface); */
-        sr_arpcache_queuereq((&sr->cache), rt_entry->gw.s_addr, packet, len, rt_entry->interface);
+        /* queue packet */
+        uint8_t *packet_copy = malloc(len);
+        memcpy(packet_copy, packet, len);
+        sr_arpcache_queuereq((&sr->cache), rt_entry->gw.s_addr, packet_copy, len, rt_entry->interface);
         #ifdef IP_DEBUG
         fprintf(stderr, "IP packet queued for forwarding\n");
         #endif
