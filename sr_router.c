@@ -265,7 +265,7 @@ void sr_handlepacket(struct sr_instance* sr,
     /* forward IP packet */
     struct sr_rt *rt_entry;
     for (rt_entry = sr->routing_table; rt_entry; rt_entry = rt_entry->next) {
-      if ((ip_hdr->ip_dst & rt_entry->mask.s_addr) == rt_entry->dest.s_addr) {
+      if (ip_hdr->ip_dst == rt_entry->dest.s_addr) {
         #ifdef IP_DEBUG
         fprintf(stderr, "IP packet for other host received\n");
         #endif
@@ -273,9 +273,44 @@ void sr_handlepacket(struct sr_instance* sr,
         /* decrement TTL */
         ip_hdr->ip_ttl--;
         if (ip_hdr->ip_ttl == 0) {
-          /* TODO: send ICMP time exceeded */
           #ifdef IP_DEBUG
           fprintf(stderr, "IP packet TTL expired\n");
+          #endif
+          /* send ICMP time exceeded */
+          uint8_t *buf = malloc(sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t11_hdr_t));
+          /* new packet headers */
+          sr_ethernet_hdr_t *buf_eth_hdr = (void *)buf;
+          sr_ip_hdr_t *buf_ip_hdr = (void *)buf_eth_hdr + sizeof(sr_ethernet_hdr_t);
+          sr_icmp_t11_hdr_t *buf_icmp_hdr = (void *)buf_ip_hdr + sizeof(sr_ip_hdr_t);
+          /* set ICMP header */
+          buf_icmp_hdr->icmp_type = 11;
+          buf_icmp_hdr->icmp_code = 0;
+          buf_icmp_hdr->icmp_sum = 0;
+          buf_icmp_hdr->unused = 0;
+          memcpy(buf_icmp_hdr->data, ip_hdr, ICMP_DATA_SIZE);
+          buf_icmp_hdr->icmp_sum = cksum(buf_icmp_hdr, sizeof(sr_icmp_t11_hdr_t));
+          /* set IP header */
+          buf_ip_hdr->ip_hl = 5;
+          buf_ip_hdr->ip_v = 4;
+          buf_ip_hdr->ip_tos = 0;
+          buf_ip_hdr->ip_len = htons(sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t11_hdr_t));
+          buf_ip_hdr->ip_id = 0;
+          buf_ip_hdr->ip_off = 0;
+          buf_ip_hdr->ip_ttl = 255;
+          buf_ip_hdr->ip_p = ip_protocol_icmp;
+          buf_ip_hdr->ip_src = sr_get_interface(sr, interface)->ip;
+          buf_ip_hdr->ip_dst = ip_hdr->ip_src;
+          buf_ip_hdr->ip_sum = 0;
+          buf_ip_hdr->ip_sum = cksum(buf_ip_hdr, sizeof(sr_ip_hdr_t));
+          /* set Ethernet header */
+          memcpy(buf_eth_hdr->ether_dhost, eth_hdr->ether_shost, ETHER_ADDR_LEN);
+          memcpy(buf_eth_hdr->ether_shost, sr_get_interface(sr, interface)->addr, ETHER_ADDR_LEN);
+          buf_eth_hdr->ether_type = htons(ethertype_ip);
+          /* send packet */
+          sr_send_packet(sr, buf,
+            sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t11_hdr_t), interface);
+          #ifdef IP_DEBUG
+          fprintf(stderr, "Sent ICMP time exceeded to %s\n", inet_ntoa((struct in_addr){ip_hdr->ip_src}));
           #endif
           return;
         }
@@ -323,12 +358,12 @@ void sr_handlepacket(struct sr_instance* sr,
     buf_ip_hdr->ip_p = ip_protocol_icmp;
     buf_ip_hdr->ip_sum = 0;
     rt_entry = NULL;
-    buf_ip_hdr->ip_src = ip_hdr->ip_dst;
+    buf_ip_hdr->ip_src = sr_get_interface(sr, interface)->ip;
     buf_ip_hdr->ip_dst = ip_hdr->ip_src;
     buf_ip_hdr->ip_sum = cksum(buf_ip_hdr, sizeof(sr_ip_hdr_t));
     /* set Ethernet header */
     memcpy(buf_eth_hdr->ether_dhost, eth_hdr->ether_shost, ETHER_ADDR_LEN);
-    memcpy(buf_eth_hdr->ether_shost, eth_hdr->ether_dhost, ETHER_ADDR_LEN);
+    memcpy(buf_eth_hdr->ether_shost, sr_get_interface(sr, interface)->addr, ETHER_ADDR_LEN);
     buf_eth_hdr->ether_type = htons(ethertype_ip);
     /* send packet */
     sr_send_packet(sr, buf,
