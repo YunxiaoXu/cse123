@@ -94,4 +94,4 @@ tags:
 	ctags *.c
 
 test: sr.debug
-	./sr.debug -l sr.pcap > sr.pcap.log 2>&1
+	./sr.debug -l sr.pcap 2> sr.pcap.log

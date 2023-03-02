@@ -27,6 +27,9 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
         curtime = time(NULL);
         if (difftime(curtime, req->sent) > 1.0) {
             if (req->times_sent >= 5) {
+                #if defined IP_DEBUG || defined ARP_DEBUG
+                fprintf(stderr, "\nhost %s unreachable\n", inet_ntoa((struct in_addr){req->ip}));
+                #endif
                 struct sr_packet *pkt;
                 for (pkt = req->packets; pkt; pkt = pkt->next) {
                     /* send ICMP host unreachable */
@@ -67,8 +70,9 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
                     }
                     if (!rt_entry) {
                         #if defined IP_DEBUG || defined ARP_DEBUG
-                        fprintf(stderr, "No route found for IP %s", inet_ntoa((struct in_addr){ip_hdr->ip_dst}));
+                        fprintf(stderr, "No route found for IP %s", inet_ntoa((struct in_addr){pkt_ip_hdr->ip_src}));
                         #endif
+                        free(buf);
                         continue;
                     }
                     ip_hdr->ip_sum = cksum(ip_hdr, sizeof(sr_ip_hdr_t));
@@ -109,7 +113,7 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
                 req->sent = curtime;
                 req->times_sent++;
                 #if defined ARP_DEBUG
-                fprintf(stderr, "Sent ARP request to %s\n", inet_ntoa((struct in_addr){arp_hdr->ar_tip}));
+                fprintf(stderr, "\nSent ARP request to %s\n", inet_ntoa((struct in_addr){arp_hdr->ar_tip}));
                 #endif
             }
         }

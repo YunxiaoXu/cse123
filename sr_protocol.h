@@ -99,7 +99,7 @@ struct sr_icmp_t3_hdr {
 typedef struct sr_icmp_t3_hdr sr_icmp_t3_hdr_t;
 
 enum sr_icmp_t3_code {
-  icmp_network_unreachable = 0x00,
+  icmp_net_unreachable = 0x00,
   icmp_host_unreachable = 0x01,
 };
 

@@ -12,6 +12,7 @@
  **********************************************************************/
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <assert.h>
 #include <string.h>
 
@@ -294,9 +295,46 @@ void sr_handlepacket(struct sr_instance* sr,
       }
     }
   
-    /* TODO: send ICMP destination net unreachable */
     #ifdef IP_DEBUG
     fprintf(stderr, "IP packet destination not found\n");
+    #endif
+    /* send ICMP destination net unreachable */
+    uint8_t *buf = malloc(sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
+    /* new packet headers */
+    sr_ethernet_hdr_t *buf_eth_hdr = (void *)buf;
+    sr_ip_hdr_t *buf_ip_hdr = (void *)buf_eth_hdr + sizeof(sr_ethernet_hdr_t);
+    sr_icmp_t3_hdr_t *buf_icmp_hdr = (void *)buf_ip_hdr + sizeof(sr_ip_hdr_t);
+    /* set ICMP header */
+    buf_icmp_hdr->icmp_type = 3;
+    buf_icmp_hdr->icmp_code = icmp_net_unreachable;
+    buf_icmp_hdr->icmp_sum = 0;
+    buf_icmp_hdr->unused = 0;
+    buf_icmp_hdr->next_mtu = 0;
+    memcpy(buf_icmp_hdr->data, ip_hdr, ICMP_DATA_SIZE);
+    buf_icmp_hdr->icmp_sum = cksum(buf_icmp_hdr, sizeof(sr_icmp_t3_hdr_t));
+    /* set IP header */
+    buf_ip_hdr->ip_hl = 5;
+    buf_ip_hdr->ip_v = 4;
+    buf_ip_hdr->ip_tos = 0;
+    buf_ip_hdr->ip_len = htons(sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
+    buf_ip_hdr->ip_id = 0;
+    buf_ip_hdr->ip_off = 0;
+    buf_ip_hdr->ip_ttl = 255;
+    buf_ip_hdr->ip_p = ip_protocol_icmp;
+    buf_ip_hdr->ip_sum = 0;
+    rt_entry = NULL;
+    buf_ip_hdr->ip_src = ip_hdr->ip_dst;
+    buf_ip_hdr->ip_dst = ip_hdr->ip_src;
+    buf_ip_hdr->ip_sum = cksum(buf_ip_hdr, sizeof(sr_ip_hdr_t));
+    /* set Ethernet header */
+    memcpy(buf_eth_hdr->ether_dhost, eth_hdr->ether_shost, ETHER_ADDR_LEN);
+    memcpy(buf_eth_hdr->ether_shost, eth_hdr->ether_dhost, ETHER_ADDR_LEN);
+    buf_eth_hdr->ether_type = htons(ethertype_ip);
+    /* send packet */
+    sr_send_packet(sr, buf,
+      sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t), interface);
+    #ifdef IP_DEBUG
+    fprintf(stderr, "Sent ICMP net unreachable to %s\n", inet_ntoa((struct in_addr){ip_hdr->ip_src}));
     #endif
   }
 
