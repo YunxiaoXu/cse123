@@ -136,8 +136,9 @@ void sr_handlepacket(struct sr_instance* sr,
         fprintf(stderr, "ARP reply for this router received\n");
         #endif
         /* forward queued packets */
-        struct sr_arpreq *req;
-        for (req = sr->cache.requests; req; req = req->next) {
+        struct sr_arpreq *req, *next_req;
+        for (req = sr->cache.requests; req; req = next_req) {
+          next_req = req->next;
           if (req->ip == arp_hdr->ar_sip) {
             struct sr_packet *pkt;
             for (pkt = req->packets; pkt; pkt = pkt->next) {
@@ -148,9 +149,9 @@ void sr_handlepacket(struct sr_instance* sr,
               #ifdef ARP_DEBUG
               fprintf(stderr, "Packet forwarded\n");
               #endif
-              free(pkt->buf);
             }
             sr_arpreq_destroy(&(sr->cache), req);
+            req = NULL;
             #ifdef ARP_DEBUG
             fprintf(stderr, "ARP request destroyed\n");
             #endif
@@ -314,6 +315,8 @@ void sr_handlepacket(struct sr_instance* sr,
           #ifdef IP_DEBUG
           fprintf(stderr, "Sent ICMP time exceeded to %s\n", inet_ntoa((struct in_addr){ip_hdr->ip_src}));
           #endif
+          free(buf);
+          buf = NULL;
           return;
         }
 
@@ -321,9 +324,7 @@ void sr_handlepacket(struct sr_instance* sr,
         ip_hdr->ip_sum = 0;
         ip_hdr->ip_sum = cksum(ip_hdr, sizeof(sr_ip_hdr_t));
         /* queue packet */
-        uint8_t *packet_copy = malloc(len);
-        memcpy(packet_copy, packet, len);
-        sr_arpcache_queuereq((&sr->cache), rt_entry->gw.s_addr, packet_copy, len, rt_entry->interface);
+        sr_arpcache_queuereq((&sr->cache), rt_entry->gw.s_addr, packet, len, rt_entry->interface);
         #ifdef IP_DEBUG
         fprintf(stderr, "IP packet queued for forwarding\n");
         #endif
@@ -372,6 +373,8 @@ void sr_handlepacket(struct sr_instance* sr,
     #ifdef IP_DEBUG
     fprintf(stderr, "Sent ICMP net unreachable to %s\n", inet_ntoa((struct in_addr){ip_hdr->ip_src}));
     #endif
+    free(buf);
+    buf = NULL;
   }
 
 
