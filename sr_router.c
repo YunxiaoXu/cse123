@@ -273,6 +273,7 @@ void sr_handlepacket(struct sr_instance* sr,
         /* decrement TTL */
         ip_hdr->ip_ttl--;
         if (ip_hdr->ip_ttl == 0) {
+          ip_hdr->ip_ttl++;
           #ifdef IP_DEBUG
           fprintf(stderr, "IP packet TTL expired\n");
           #endif
