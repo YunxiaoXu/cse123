@@ -31,8 +31,15 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
                 #if defined IP_DEBUG || defined ARP_DEBUG
                 fprintf(stderr, "\nhost %s unreachable\n", inet_ntoa((struct in_addr){req->ip}));
                 #endif
-                struct sr_packet *pkt;
-                for (pkt = req->packets; pkt; pkt = pkt->next) {
+                struct sr_packet *pkt, *next_pkt, *reverse = NULL;
+                /* reverse the packet list */
+                for (pkt = req->packets; pkt; pkt = next_pkt) {
+                    next_pkt = pkt->next;
+                    pkt->next = reverse;
+                    reverse = pkt;
+                }
+                /* send ICMP host unreachable packets */
+                for (pkt = reverse; pkt; pkt = pkt->next) {
                     /* send ICMP host unreachable */
                     uint8_t *buf = (uint8_t *)malloc(
                         sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t3_hdr_t));
