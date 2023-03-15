@@ -78,7 +78,7 @@ sr.purify : $(sr_OBJS)
 .PHONY : clean clean-deps dist test
 
 clean:
-	rm -f *.o *~ core sr *.dump *.tar tags sr.*
+	rm -f *.o *~ core sr *.dump *.tar tags sr.* sr[0-9].*
 
 clean-deps:
 	rm -f .*.d
@@ -95,3 +95,6 @@ tags:
 
 test: sr.debug
 	./sr.debug -l sr.pcap 2> sr.pcap.log
+
+test%: sr.debug
+	./sr.debug -v sw$* -r ../rtable$* -l sr$*.pcap 2> sr$*.pcap.log
