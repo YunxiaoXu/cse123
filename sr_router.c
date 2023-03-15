@@ -339,6 +339,24 @@ void sr_handlepacket(struct sr_instance* sr,
       /* set ip header */
       ip_hdr->ip_sum = 0;
       ip_hdr->ip_sum = cksum(ip_hdr, sizeof(sr_ip_hdr_t));
+      /* send packet if mac addr in arp cache */
+      struct sr_arpentry *arp_entry = sr_arpcache_lookup(&sr->cache, rt_entry->gw.s_addr);
+      if (arp_entry) {
+        #ifdef ARP_DEBUG
+        fprintf(stderr, "Found ARP entry for %s\n", inet_ntoa((struct in_addr){rt_entry->gw.s_addr}));
+        #endif
+        /* set ethernet header */
+        memcpy(eth_hdr->ether_dhost, arp_entry->mac, ETHER_ADDR_LEN);
+        memcpy(eth_hdr->ether_shost, sr_get_interface(sr, rt_entry->interface)->addr, ETHER_ADDR_LEN);
+        /* send packet */
+        sr_send_packet(sr, packet, len, rt_entry->interface);
+        #ifdef IP_DEBUG
+        fprintf(stderr, "IP packet forwarded to %s\n", inet_ntoa((struct in_addr){rt_entry->gw.s_addr}));
+        #endif
+        free(arp_entry);
+        arp_entry = NULL;
+        return;
+      }
       /* queue packet */
       sr_arpcache_queuereq((&sr->cache), rt_entry->gw.s_addr, packet, len, rt_entry->interface);
       #ifdef IP_DEBUG
