@@ -68,15 +68,28 @@ void sr_arpcache_sweepreqs(struct sr_instance *sr) {
                     ip_hdr->ip_ttl = 255;
                     ip_hdr->ip_p = ip_protocol_icmp;
                     ip_hdr->ip_sum = 0;
-                    struct sr_rt *rt_entry;
+                    /* longest prefix match */
+                    struct sr_rt *rt_entry, *longest_prefix_entry = NULL;
+                    in_addr_t longest_prefix = 0;
                     for (rt_entry = sr->routing_table; rt_entry; rt_entry = rt_entry->next) {
-                        if (pkt_ip_hdr->ip_src == rt_entry->dest.s_addr) {
-                            ip_hdr->ip_src = sr_get_interface(sr, rt_entry->interface)->ip;
-                            ip_hdr->ip_dst = rt_entry->gw.s_addr;
-                            break;
+                        in_addr_t rt_mask = rt_entry->mask.s_addr;
+                        in_addr_t rt_dest = rt_entry->dest.s_addr;
+                        if ((pkt_ip_hdr->ip_src & rt_mask) == (rt_dest & rt_mask)) {
+                            if (rt_mask > longest_prefix || longest_prefix_entry == NULL) {
+                                longest_prefix = rt_mask;
+                                longest_prefix_entry = rt_entry;
+                            }
                         }
                     }
-                    if (!rt_entry) {
+                    if ((rt_entry = longest_prefix_entry)) {
+                        #if defined IP_DEBUG || defined ARP_DEBUG
+                        fprintf(stderr, "Found route %s (%s)\n", rt_entry->interface,
+                            inet_ntoa((struct in_addr){sr_get_interface(sr, rt_entry->interface)->ip})
+                        );
+                        #endif
+                        ip_hdr->ip_dst = ip_hdr->ip_src;
+                        ip_hdr->ip_src = sr_get_interface(sr, rt_entry->interface)->ip;
+                    } else {
                         #if defined IP_DEBUG || defined ARP_DEBUG
                         fprintf(stderr, "No route found for IP %s", inet_ntoa((struct in_addr){pkt_ip_hdr->ip_src}));
                         #endif

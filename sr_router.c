@@ -262,74 +262,89 @@ void sr_handlepacket(struct sr_instance* sr,
         }
       }
     }
-    
+
+    #ifdef IP_DEBUG
+    fprintf(stderr, "IP packet for other host received\n");
+    #endif
 
     /* forward IP packet */
-    struct sr_rt *rt_entry;
+    struct sr_rt *rt_entry, *longest_prefix_entry = NULL;
+    in_addr_t longest_prefix = 0;
+    /* longest prefix match */
     for (rt_entry = sr->routing_table; rt_entry; rt_entry = rt_entry->next) {
-      if (ip_hdr->ip_dst == rt_entry->dest.s_addr) {
-        #ifdef IP_DEBUG
-        fprintf(stderr, "IP packet for other host received\n");
-        #endif
-
-        /* decrement TTL */
-        ip_hdr->ip_ttl--;
-        if (ip_hdr->ip_ttl == 0) {
-          ip_hdr->ip_ttl++;
-          #ifdef IP_DEBUG
-          fprintf(stderr, "IP packet TTL expired\n");
-          #endif
-          /* send ICMP time exceeded */
-          uint8_t *buf = malloc(sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t11_hdr_t));
-          /* new packet headers */
-          sr_ethernet_hdr_t *buf_eth_hdr = (void *)buf;
-          sr_ip_hdr_t *buf_ip_hdr = (void *)buf_eth_hdr + sizeof(sr_ethernet_hdr_t);
-          sr_icmp_t11_hdr_t *buf_icmp_hdr = (void *)buf_ip_hdr + sizeof(sr_ip_hdr_t);
-          /* set ICMP header */
-          buf_icmp_hdr->icmp_type = 11;
-          buf_icmp_hdr->icmp_code = 0;
-          buf_icmp_hdr->icmp_sum = 0;
-          buf_icmp_hdr->unused = 0;
-          memcpy(buf_icmp_hdr->data, ip_hdr, ICMP_DATA_SIZE);
-          buf_icmp_hdr->icmp_sum = cksum(buf_icmp_hdr, sizeof(sr_icmp_t11_hdr_t));
-          /* set IP header */
-          buf_ip_hdr->ip_hl = 5;
-          buf_ip_hdr->ip_v = 4;
-          buf_ip_hdr->ip_tos = 0;
-          buf_ip_hdr->ip_len = htons(sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t11_hdr_t));
-          buf_ip_hdr->ip_id = 0;
-          buf_ip_hdr->ip_off = 0;
-          buf_ip_hdr->ip_ttl = 255;
-          buf_ip_hdr->ip_p = ip_protocol_icmp;
-          buf_ip_hdr->ip_src = sr_get_interface(sr, interface)->ip;
-          buf_ip_hdr->ip_dst = ip_hdr->ip_src;
-          buf_ip_hdr->ip_sum = 0;
-          buf_ip_hdr->ip_sum = cksum(buf_ip_hdr, sizeof(sr_ip_hdr_t));
-          /* set Ethernet header */
-          memcpy(buf_eth_hdr->ether_dhost, eth_hdr->ether_shost, ETHER_ADDR_LEN);
-          memcpy(buf_eth_hdr->ether_shost, sr_get_interface(sr, interface)->addr, ETHER_ADDR_LEN);
-          buf_eth_hdr->ether_type = htons(ethertype_ip);
-          /* send packet */
-          sr_send_packet(sr, buf,
-            sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t11_hdr_t), interface);
-          #ifdef IP_DEBUG
-          fprintf(stderr, "Sent ICMP time exceeded to %s\n", inet_ntoa((struct in_addr){ip_hdr->ip_src}));
-          #endif
-          free(buf);
-          buf = NULL;
-          return;
+      in_addr_t rt_mask = rt_entry->mask.s_addr;
+      in_addr_t rt_dest = rt_entry->dest.s_addr;
+      if ((ip_hdr->ip_dst & rt_mask) == (rt_dest & rt_mask)) {
+        if (rt_mask > longest_prefix || longest_prefix_entry == NULL) {
+          longest_prefix = rt_mask;
+          longest_prefix_entry = rt_entry;
         }
+      }
+    }
+    if ((rt_entry = longest_prefix_entry)) {
+      #ifdef IP_DEBUG
+      fprintf(stderr, "Found route %s (%s)\n", rt_entry->interface, 
+        inet_ntoa((struct in_addr){sr_get_interface(sr, rt_entry->interface)->ip})
+      );
+      #endif
 
-        /* set ip header */
-        ip_hdr->ip_sum = 0;
-        ip_hdr->ip_sum = cksum(ip_hdr, sizeof(sr_ip_hdr_t));
-        /* queue packet */
-        sr_arpcache_queuereq((&sr->cache), rt_entry->gw.s_addr, packet, len, rt_entry->interface);
+      /* decrement TTL */
+      ip_hdr->ip_ttl--;
+      if (ip_hdr->ip_ttl == 0) {
+        ip_hdr->ip_ttl++;
         #ifdef IP_DEBUG
-        fprintf(stderr, "IP packet queued for forwarding\n");
+        fprintf(stderr, "IP packet TTL expired\n");
         #endif
+        /* send ICMP time exceeded */
+        uint8_t *buf = malloc(sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t11_hdr_t));
+        /* new packet headers */
+        sr_ethernet_hdr_t *buf_eth_hdr = (void *)buf;
+        sr_ip_hdr_t *buf_ip_hdr = (void *)buf_eth_hdr + sizeof(sr_ethernet_hdr_t);
+        sr_icmp_t11_hdr_t *buf_icmp_hdr = (void *)buf_ip_hdr + sizeof(sr_ip_hdr_t);
+        /* set ICMP header */
+        buf_icmp_hdr->icmp_type = 11;
+        buf_icmp_hdr->icmp_code = 0;
+        buf_icmp_hdr->icmp_sum = 0;
+        buf_icmp_hdr->unused = 0;
+        memcpy(buf_icmp_hdr->data, ip_hdr, ICMP_DATA_SIZE);
+        buf_icmp_hdr->icmp_sum = cksum(buf_icmp_hdr, sizeof(sr_icmp_t11_hdr_t));
+        /* set IP header */
+        buf_ip_hdr->ip_hl = 5;
+        buf_ip_hdr->ip_v = 4;
+        buf_ip_hdr->ip_tos = 0;
+        buf_ip_hdr->ip_len = htons(sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t11_hdr_t));
+        buf_ip_hdr->ip_id = 0;
+        buf_ip_hdr->ip_off = 0;
+        buf_ip_hdr->ip_ttl = 255;
+        buf_ip_hdr->ip_p = ip_protocol_icmp;
+        buf_ip_hdr->ip_src = sr_get_interface(sr, interface)->ip;
+        buf_ip_hdr->ip_dst = ip_hdr->ip_src;
+        buf_ip_hdr->ip_sum = 0;
+        buf_ip_hdr->ip_sum = cksum(buf_ip_hdr, sizeof(sr_ip_hdr_t));
+        /* set Ethernet header */
+        memcpy(buf_eth_hdr->ether_dhost, eth_hdr->ether_shost, ETHER_ADDR_LEN);
+        memcpy(buf_eth_hdr->ether_shost, sr_get_interface(sr, interface)->addr, ETHER_ADDR_LEN);
+        buf_eth_hdr->ether_type = htons(ethertype_ip);
+        /* send packet */
+        sr_send_packet(sr, buf,
+          sizeof(sr_ethernet_hdr_t) + sizeof(sr_ip_hdr_t) + sizeof(sr_icmp_t11_hdr_t), interface);
+        #ifdef IP_DEBUG
+        fprintf(stderr, "Sent ICMP time exceeded to %s\n", inet_ntoa((struct in_addr){ip_hdr->ip_src}));
+        #endif
+        free(buf);
+        buf = NULL;
         return;
       }
+
+      /* set ip header */
+      ip_hdr->ip_sum = 0;
+      ip_hdr->ip_sum = cksum(ip_hdr, sizeof(sr_ip_hdr_t));
+      /* queue packet */
+      sr_arpcache_queuereq((&sr->cache), rt_entry->gw.s_addr, packet, len, rt_entry->interface);
+      #ifdef IP_DEBUG
+      fprintf(stderr, "IP packet queued for forwarding\n");
+      #endif
+      return;
     }
   
     #ifdef IP_DEBUG
