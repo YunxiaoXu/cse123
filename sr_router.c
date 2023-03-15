@@ -135,27 +135,32 @@ void sr_handlepacket(struct sr_instance* sr,
         #ifdef ARP_DEBUG
         fprintf(stderr, "ARP reply for this router received\n");
         #endif
+        /* update ARP cache */
+        struct sr_arpreq *req = sr_arpcache_insert(&(sr->cache), arp_hdr->ar_sha, arp_hdr->ar_sip);
+        #ifdef ARP_DEBUG
+        fprintf(stderr, "ARP cache updated for %s: %02x:%02x:%02x:%02x:%02x:%02x\n",
+          inet_ntoa((struct in_addr){arp_hdr->ar_sip}),
+          arp_hdr->ar_sha[0], arp_hdr->ar_sha[1], arp_hdr->ar_sha[2],
+          arp_hdr->ar_sha[3],arp_hdr->ar_sha[4], arp_hdr->ar_sha[5]
+        );
+        #endif
         /* forward queued packets */
-        struct sr_arpreq *req, *next_req;
-        for (req = sr->cache.requests; req; req = next_req) {
-          next_req = req->next;
-          if (req->ip == arp_hdr->ar_sip) {
-            struct sr_packet *pkt;
-            for (pkt = req->packets; pkt; pkt = pkt->next) {
-              sr_ethernet_hdr_t *pkt_eth_hdr = (sr_ethernet_hdr_t *)pkt->buf;
-              memcpy(pkt_eth_hdr->ether_shost, sr_get_interface(sr, pkt->iface)->addr, ETHER_ADDR_LEN);
-              memcpy(pkt_eth_hdr->ether_dhost, arp_hdr->ar_sha, ETHER_ADDR_LEN);
-              sr_send_packet(sr, pkt->buf, pkt->len, pkt->iface);
-              #ifdef ARP_DEBUG
-              fprintf(stderr, "Packet forwarded\n");
-              #endif
-            }
-            sr_arpreq_destroy(&(sr->cache), req);
-            req = NULL;
+        if (req) {
+          struct sr_packet *pkt;
+          for (pkt = req->packets; pkt; pkt = pkt->next) {
+            sr_ethernet_hdr_t *pkt_eth_hdr = (sr_ethernet_hdr_t *)pkt->buf;
+            memcpy(pkt_eth_hdr->ether_shost, sr_get_interface(sr, pkt->iface)->addr, ETHER_ADDR_LEN);
+            memcpy(pkt_eth_hdr->ether_dhost, arp_hdr->ar_sha, ETHER_ADDR_LEN);
+            sr_send_packet(sr, pkt->buf, pkt->len, pkt->iface);
             #ifdef ARP_DEBUG
-            fprintf(stderr, "ARP request destroyed\n");
+            fprintf(stderr, "Packet forwarded\n");
             #endif
           }
+          sr_arpreq_destroy(&(sr->cache), req);
+          req = NULL;
+          #ifdef ARP_DEBUG
+          fprintf(stderr, "ARP request destroyed\n");
+          #endif
         }
       } else {
         #ifdef ARP_DEBUG
