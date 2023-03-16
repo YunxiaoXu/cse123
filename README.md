@@ -1,4 +1,4 @@
-# PA 3 Simple Router
+# PA 3 & 4 Simple Router
 
 Name: Yunxiao Xu  
 PID: A15906610
@@ -16,6 +16,7 @@ Each time a packet is received, first check if its ethernet header
             - ignore
     - If it is an ARP reply
         - If target ip is the ip of the interface
+            - **update the arp cache**
             - set ethernet header and forward all queued packets of the source ip
         - Otherwise
             - ignore
@@ -26,15 +27,20 @@ Each time a packet is received, first check if its ethernet header
         - find the router interface correspond to the dst ip
         - If icmp type 8 (echo request)
             - reply with icmp type 0 (echo reply)
+        - **If tcp or udp**
+            - **reply ICMP destination port unreachable**
         - Otherwise
             - ignore
     - If its destination is other hosts in routing table
-        - find the interface and gateway in routing table
+        - find the interface and gateway in routing table (*longest prefix match*)
         - If ttl == 0
             - reply ICMP time exceeded
-        - modify IP header then queued for forwarding
+        - **If destination mac in arp cache**
+            - **forward the packet**
+        - Else
+            - modify IP header then queued for forwarding
     - Otherwise
-        - reply ICMP destination unreachable
+        - reply ICMP destination net unreachable
 
 ## sr_router.c
 
@@ -44,4 +50,4 @@ Each time executed, for each arpreq
 - If the last ARP request is not received in 1s
     - If 5 ARP requests have been sent
         - reply queued packets in arpreq with ICMP host unreachable
-    - send another ARP request to the ip
+    - send another ARP request to the ip (*longest prefix match*)
